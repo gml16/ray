@@ -93,7 +93,12 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
 
         logits, state = model(train_batch)
         curr_action_dist = dist_class(logits, model)
-
+        print("Loss", train_batch)
+        print("Indices", train_batch[SampleBatch.AGENT_INDEX])
+        print("Dones", train_batch[SampleBatch.DONES])
+        print("Actions", train_batch[SampleBatch.ACTIONS])
+        print("Advantages", train_batch[Postprocessing.ADVANTAGES])
+        print("VALUE_TARGETS", train_batch[Postprocessing.VALUE_TARGETS])
         # RNN case: Mask away 0-padded chunks at end of time axis.
         if state:
             B = len(train_batch[SampleBatch.SEQ_LENS])
@@ -117,11 +122,14 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
         prev_action_dist = dist_class(
             train_batch[SampleBatch.ACTION_DIST_INPUTS], model
         )
+        print("prev_action_dist", prev_action_dist)
 
         logp_ratio = torch.exp(
             curr_action_dist.logp(train_batch[SampleBatch.ACTIONS])
             - train_batch[SampleBatch.ACTION_LOGP]
         )
+        print("logp_ratio", logp_ratio)
+
 
         # Only calculate kl loss if necessary (kl-coeff > 0.0).
         if self.config["kl_coeff"] > 0.0:
@@ -132,6 +140,7 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
 
         curr_entropy = curr_action_dist.entropy()
         mean_entropy = reduce_mean_valid(curr_entropy)
+        print("mean_entropy", mean_entropy)
 
         surrogate_loss = torch.min(
             train_batch[Postprocessing.ADVANTAGES] * logp_ratio,
@@ -140,7 +149,9 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
                 logp_ratio, 1 - self.config["clip_param"], 1 + self.config["clip_param"]
             ),
         )
+        print("surrogate_loss", surrogate_loss)
         mean_policy_loss = reduce_mean_valid(-surrogate_loss)
+        print("mean_policy_loss", mean_policy_loss)
 
         # Compute a value function loss.
         if self.config["use_critic"]:
@@ -176,6 +187,9 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
         )
         model.tower_stats["mean_entropy"] = mean_entropy
         model.tower_stats["mean_kl_loss"] = mean_kl_loss
+        model.tower_stats["min_action_prob_ratio"] = torch.min(logp_ratio)
+        model.tower_stats["max_action_prob_ratio"] = torch.max(logp_ratio)
+        model.tower_stats["max_advantage"] = torch.max(train_batch[Postprocessing.ADVANTAGES])
 
         return total_loss
 
@@ -245,6 +259,15 @@ class PPOTorchPolicy(TorchPolicy, LearningRateSchedule, EntropyCoeffSchedule):
                     torch.stack(self.get_tower_stats("mean_entropy"))
                 ),
                 "entropy_coeff": self.entropy_coeff,
+                "min_action_prob_ratio": torch.min(
+                    torch.stack(self.get_tower_stats("min_action_prob_ratio"))
+                ),
+                "max_action_prob_ratio": torch.max(
+                    torch.stack(self.get_tower_stats("max_action_prob_ratio"))
+                ),
+                "max_adv": torch.max(
+                    torch.stack(self.get_tower_stats("max_advantage"))
+                ),
             }
         )
 

@@ -142,6 +142,9 @@ def ppo_surrogate_loss(
     policy._mean_policy_loss = mean_policy_loss
     policy._mean_vf_loss = mean_vf_loss
     policy._mean_entropy = mean_entropy
+    policy._min_action_prob_ratio = tf.minimum(logp_ratio)
+    policy._max_action_prob_ratio = tf.maximum(logp_ratio)
+    policy._max_advantage = tf.maximum(train_batch[Postprocessing.ADVANTAGES])
     # Backward compatibility: Deprecate policy._mean_kl.
     policy._mean_kl_loss = policy._mean_kl = mean_kl_loss
     policy._value_fn_out = value_fn_out
@@ -173,6 +176,9 @@ def kl_and_loss_stats(
         "kl": policy._mean_kl_loss,
         "entropy": policy._mean_entropy,
         "entropy_coeff": tf.cast(policy.entropy_coeff, tf.float64),
+        "min_action_prob_ratio": policy._min_action_prob_ratio,
+        "max_action_prob_ratio": policy._max_action_prob_ratio,
+        "max_advantage": policy._max_advantage,
     }
 
 
